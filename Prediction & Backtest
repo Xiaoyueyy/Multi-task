@@ -1,0 +1,116 @@
+#Give the range of prediction
+start_year=2018
+train_years=5
+validation_years=1
+test_years=1
+end_years=2023
+
+#use y_pred_df to store the prediction
+y_pred_result = pd.DataFrame()
+index=6
+
+while start_year+train_years<=end_years:
+    model = MultiTaskNet()
+    #path='train'+'.pth'
+    path = str(0)+str(0)+'model'+str(5)+'.pth'
+
+    checkpoint = torch.load(path, map_location="cpu")
+    print("key:",checkpoint.keys())
+    for key in list(checkpoint.keys()):
+        if '0.' in key:
+            checkpoint[key[2:]] = checkpoint[key] #全部key去掉“module.”前缀
+            del checkpoint[key]
+    print("key2:",checkpoint.keys())
+    model.load_state_dict(checkpoint)
+
+    initial = 0
+    train_start=pd.to_datetime(str(start_year))
+    train_end=train_start+pd.DateOffset(years=train_years)-pd.DateOffset(days=1)
+
+    test_start=train_end+pd.DateOffset(days=1)
+    test_end=test_start+pd.DateOffset(years=test_years)-pd.DateOffset(days=1)
+
+    feature=data.columns.to_list()
+
+    X_test=data.loc[test_start:test_end][feature].values
+    y_test_1=sorted_data.loc[test_start:test_end]['rt_5_rank'].values
+    y_test_2=sorted_data.loc[test_start:test_end]['rt_21_rank'].values
+    y_rt_5=sorted_data.loc[test_start:test_end]['rt_5'].values
+    y_rt_21=sorted_data.loc[test_start:test_end]['rt_21'].values
+    
+    X_test=torch.from_numpy(X_test).float()
+    with torch.no_grad():
+        output=model(X_test)
+    temp=np.array([i.detach().numpy()for i in output]).squeeze()
+    temp=np.rot90(temp,k=3)
+    y_pred_df=pd.DataFrame(temp, columns=['rt_pred_5','rt_pred_21'])
+    y_test_1_df=pd.DataFrame(y_test_1,index=data.loc[test_start:test_end].index,columns=['rt_5_rank'])
+    y_test_2_df=pd.DataFrame(y_test_2,index=data.loc[test_start:test_end].index,columns=['rt_21_rank'])
+    y_test_df_1=pd.concat([y_test_1_df,y_test_2_df],axis=1)
+    
+    y_rt_5_df=pd.DataFrame(y_rt_5,index=data.loc[test_start:test_end].index,columns=['rt_5'])
+    y_rt_21_df=pd.DataFrame(y_rt_21,index=data.loc[test_start:test_end].index,columns=['rt_21'])
+    y_test_df_2=pd.concat([y_rt_5_df,y_rt_21_df],axis=1)
+    
+    y_test_df=pd.concat([y_test_df_1,y_test_df_2],axis=1)
+    
+    merged_data=pd.concat([y_test_df.reset_index(),y_pred_df],axis=1)
+    merged_data.set_index(['factor_date','factor_symbol'],inplace=True)
+    y_pred_result=merged_data
+    
+    index+=1
+    start_year+=1
+
+con1=y_pred_result
+con2=y_pred_result
+con3=y_pred_result
+con4=y_pred_result
+con5=y_pred_result
+con6=y_pred_result
+dfs = [con2,con3,con4,con5,con6]
+y_pred= pd.concat(dfs,ignore_index=False)
+y_pred_result= y_pred[['rt_5_rank','rt_21_rank','rt_5','rt_21','rt_pred_5','rt_pred_21']]
+
+df=y_pred_result[['rt_5_rank','rt_5','rt_pred_5']].reset_index()
+df['factor_date'] = pd.to_datetime(df['factor_date'], format='%Y/%m/%d')
+df.set_index('factor_date', inplace=True)
+notnull_idx=df['rt_5_rank'].notnull()
+sorted_data_1=df.loc[notnull_idx,:]
+
+#Obtain group returns（0-20%，20%-40%，40%-60%，60%-80%，80%-100%）
+top_1 = df.groupby(level=0)[['rt_5','rt_pred_5']].apply(lambda x: x.sort_values('rt_pred_5', ascending=False).iloc[int(len(x)*0):int(len(x)*0.2)]['rt_5'].mean())
+top_2 = df.groupby(level=0)[['rt_5','rt_pred_5']].apply(lambda x: x.sort_values('rt_pred_5', ascending=False).iloc[int(len(x)*0.2):int(len(x)*0.4)]['rt_5'].mean())
+top_3 = df.groupby(level=0)[['rt_5','rt_pred_5']].apply(lambda x: x.sort_values('rt_pred_5', ascending=False).iloc[int(len(x)*0.4):int(len(x)*0.6)]['rt_5'].mean())
+top_4 = df.groupby(level=0)[['rt_5','rt_pred_5']].apply(lambda x: x.sort_values('rt_pred_5', ascending=False).iloc[int(len(x)*0.6):int(len(x)*0.8)]['rt_5'].mean())
+top_5 = df.groupby(level=0)[['rt_5','rt_pred_5']].apply(lambda x: x.sort_values('rt_pred_5', ascending=False).iloc[int(len(x)*0.8):int(len(x)*1)]['rt_5'].mean())
+top_1=pd.DataFrame(top_1,columns=['top_1'])
+top_2=pd.DataFrame(top_2,columns=['top_2'])
+top_3=pd.DataFrame(top_3,columns=['top_3'])
+top_4=pd.DataFrame(top_4,columns=['top_4'])
+top_5=pd.DataFrame(top_5,columns=['top_5'])
+#Calculate the cumulative return
+accu_top_1=(1+top_1/5).cumprod()
+accu_top_2=(1+top_2/5).cumprod()
+accu_top_3=(1+top_3/5).cumprod()
+accu_top_4=(1+top_4/5).cumprod()
+accu_top_5=(1+top_5/5).cumprod()
+
+# Draw the curves of cumulative returns
+fig, ax = plt.subplots()
+ax.plot(accu_top_1.index,accu_top_1['top_1'],label='top_1')
+ax.plot(accu_top_2.index,accu_top_2['top_2'],label='top_2')
+ax.plot(accu_top_3.index,accu_top_3['top_3'],label='top_3')
+ax.plot(accu_top_4.index,accu_top_4['top_4'],label='top_4')
+ax.plot(accu_top_5.index,accu_top_5['top_5'],label='top_5')
+# Set the x-plot
+ax.xaxis.set_major_locator(mdates.MonthLocator(interval=6))
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+# Set the intervals of the x-plot
+ax.xaxis.set_minor_locator(mticker.AutoMinorLocator(4))
+ax.set_xlim([accu_top_1.index.min(), accu_top_1.index.max()])
+# Set the size of the image
+fig.set_size_inches(12, 6)
+ax.legend()
+#import and save the image
+plt.savefig('backtest_result.jpg',dpi=300)
+plt.show()

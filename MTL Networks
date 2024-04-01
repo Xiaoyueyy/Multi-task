@@ -107,3 +107,15 @@ def MLT_model_training(X_train,y_train,va_data,va_target,lambda_,learning_rate,l
             return loss_list,net,max_r_square,epoch,log_var_a,log_var_b
     max_r_square = loss1
     return loss_list,net,max_r_square,epoch,log_var_a,log_var_b
+
+#Define the function of saving the training model
+def savemodel(i,j,initial,model):
+    file_path = str(i)+str(j)+'model'+str(initial)+'.pth'
+    torch.save(model.state_dict(), file_path)
+
+def loadmodel(i,j,inital):
+    #Create the real example of the model
+    model = MultiTaskNet()
+    file_path = str(i)+str(j)+'model'+str(initial)+'.pth'
+    #Load the model
+    model.load_state_dict(torch.load(file_path))

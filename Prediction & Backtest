@@ -61,6 +61,7 @@ while start_year+train_years<=end_years:
     index+=1
     start_year+=1
 
+#Utilize the roll training of data with time
 con1=y_pred_result
 con2=y_pred_result
 con3=y_pred_result

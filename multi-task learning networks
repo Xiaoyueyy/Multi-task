@@ -1,0 +1,109 @@
+#import packages
+import pandas as pd
+import numpy as np
+import torch
+import os
+import torch.nn as nn
+from torch.nn import init
+import torch.optim as optim
+import torch.utils.data as Data
+
+class MultiTaskNet(nn.Module):
+    def __init__(self):
+        super(MultiTaskNet,self).__init__()
+        #Define 2 task-shared layers
+        self.shared_layer_1=nn.Linear(482,256)#482 is the num of features in the training set
+        self.shared_layer_2=nn.Linear(256,256)
+        #Define task-specific layer
+        self.specific_layer_1=nn.Linear(256,256)
+        self.output_layer_1=nn.Linear(256,1)
+        self.specific_layer_2=nn.Linear(256,256)
+        self.output_layer_2=nn.Linear(256,1)
+        self.leaky_relu=nn.LeakyReLU(0.1)
+    
+    def forward(self,x):
+        x=self.leaky_relu(self.shared_layer_1(x))
+        x=self.leaky_relu(self.shared_layer_2(x))
+        out_1=self.leaky_relu(self.specific_layer_1(x))
+        out_1=self.output_layer_1(out_1)
+        out_2=self.leaky_relu(self.specific_layer_2(x))
+        out_2=self.output_layer_2(out_2)
+        return out_1,out_2
+
+#Define the loss function with 2 uncertainty weights
+def criterion_loss(y_pred, y_true, log_vars):
+    y_pred = torch.rot90(y_pred,1)
+    y_true = torch.rot90(y_true,1)
+    loss = 0
+    for i in range(len(y_pred)):
+        precision = torch.exp(-torch.abs(log_vars[i]))
+        diff = (y_pred[i]-y_true[i])**2.
+        loss += torch.sum(precision * diff + torch.abs(log_vars[i]), -1)
+    return torch.mean(loss)
+
+#Define the model training function
+#Input:training set, training labels, validation set, validation labels, parameters of neural network, entropy of two labels
+#Output:values of loss function, the trained net, r square, num of epochs, entropy of two labels
+def MLT_model_training(X_train,y_train,va_data,va_target,lambda_,learning_rate,log_var_a,log_var_b,model):
+    max_epoch = 200
+    log_vars = [log_var_a,log_var_b]
+    net = model        
+    params = ([p for p in net.parameters()] + [log_var_a] + [log_var_b])
+    #early stopping: use loss list
+
+    optimizer=torch.optim.Adam(params,lr=learning_rate)
+    #MSE Loss Function
+    criterion=nn.MSELoss()#criterion_loss
+    Xtrain_tensor=torch.tensor(X_train,dtype=torch.float)
+    va_data=torch.tensor(va_data,dtype=torch.float)
+    #print(y_train)
+
+    tensor_list = [torch.tensor(label, dtype=torch.float64) for label in y_train]
+    ytrain_tensor = torch.stack(tensor_list)
+
+    #ytrain_tensor.reshape((-1,2))
+    torch_dataset=Data.TensorDataset(Xtrain_tensor,ytrain_tensor)
+    BATCH_SIZE=250
+    
+    loader=Data.DataLoader(
+        dataset=torch_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=2,
+    )
+
+    for epoch in range(max_epoch):
+        print("epoch:",epoch)
+        loss_list=[]
+        for step, (batch_x, batch_y) in enumerate(loader):
+
+            optimizer.zero_grad()
+            output=net(batch_x)
+            #batch_y = torch.rot90(batch_y,k = 1)
+            output = torch.cat(output, dim=1)
+            batch_y = batch_y.float()
+            loss=criterion_loss(output,batch_y,log_vars)#,log_vars)
+            l1_loss=0
+            #for param in params:
+                #l1_loss +=torch.abs(param).sum()
+            loss +=lambda_ * l1_loss
+            loss.backward()
+            optimizer.step()
+            loss=criterion(output,batch_y)#,log_vars)
+            loss_list.append(loss.item())
+        print(np.mean(loss_list))
+        output=net(va_data)
+        output = torch.cat(output, dim=1)
+        output = output.detach().numpy()
+        batch_y = np.array([np.array(i) for i in va_target])
+        loss=np.mean((output-batch_y)**2)
+        loss1=loss
+        print(loss)
+        #if np.abs(loss1)<=min_loss1 or epoch<=3:
+        if epoch<=50:
+            min_loss1 = np.abs(loss1)
+        else:
+            max_r_square = loss1
+            return loss_list,net,max_r_square,epoch,log_var_a,log_var_b
+    max_r_square = loss1
+    return loss_list,net,max_r_square,epoch,log_var_a,log_var_b

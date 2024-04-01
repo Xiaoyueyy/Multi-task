@@ -1,0 +1,24 @@
+source_data = pd.read_hdf('df_factor.h5', key='factor')
+#数据处理，用0填充缺失值
+data=source_data.iloc[:,0:482] #只挑出含有factor的数据
+data.fillna(0, inplace=True)
+#将factor_date和factor_symbol调换顺序
+data = data.reset_index()
+data = data.sort_values(by=['factor_date','factor_symbol'])
+data = data.set_index(['factor_date','factor_symbol'])
+
+#对于初始数据集，将factor_date和factor_symbol调换顺序
+source_data = source_data.reset_index()
+source_data=source_data.sort_values(by=['factor_date','factor_symbol'])
+source_data=source_data.set_index(['factor_date','factor_symbol'])
+#将rt_5和rt_21的收益率转换为同一日期内股票间的排名，并将其用占比的小数表示
+source_data['rt_5_rank'] = source_data.groupby('factor_date')['rt_5'].rank(pct=True)
+source_data['rt_21_rank'] = source_data.groupby('factor_date')['rt_21'].rank(pct=True)
+
+#用sorted_data存放数据集的标签（收益率数值与收益率排名）
+sorted_data=source_data[['rt_5_rank','rt_21_rank','rt_5','rt_21']]
+#将两列标签合并成一个列表，形如[R5,R20]
+sorted_data['rt_rank'] = list(zip(sorted_data['rt_5_rank'], sorted_data['rt_21_rank']))
+
+
+

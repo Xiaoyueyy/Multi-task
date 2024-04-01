@@ -1,0 +1,64 @@
+#Establish the combination of parameters
+lambda_list=[0.0001,0.001]
+learning_rate_list=[0.001,0.005]
+total_r_oos_list=[]
+rss = []
+
+for i in range(0,1):
+    for j in range(0,1):
+        initial = 0
+        lambda_=lambda_list[i]
+        learning_rate=learning_rate_list[j]
+        parameter_num_code=i*3+j+1
+        print("超参数模型序号：",parameter_num_code)
+        #write a loop of roll training
+        start_year=2013
+        train_years=5
+        #validation_years=1
+        test_years=1
+        end_years=2023
+        
+        #use y_pred_df to store the prediction
+        y_pred_result = pd.DataFrame()
+        rs = []
+        while start_year+train_years<=end_years:
+            train_start=pd.to_datetime(str(start_year))
+            train_end=train_start+pd.DateOffset(years=train_years)-pd.DateOffset(days=1)
+    
+            #validation_start=train_end+pd.DateOffset(days=1)
+            #validation_end=validation_start+pd.DateOffset(years=validation_years)-pd.DateOffset(days=1)
+    
+            test_start=train_end+pd.DateOffset(days=1)
+            test_end=test_start+pd.DateOffset(years=test_years)-pd.DateOffset(days=1)
+    
+            target='rt_rank'
+            feature=data.columns.to_list()
+
+            X_train=data.loc[train_start:train_end][feature].values
+            y_train=sorted_data.loc[train_start:train_end][target].values
+            
+            X_test=data.loc[test_start:test_end][feature].values
+            y_test=sorted_data.loc[test_start:test_end][target].values
+
+            if initial == 0:
+                #define neuraul network
+                log_var_a = torch.zeros((1,), requires_grad=True)
+                log_var_b = torch.zeros((1,), requires_grad=True)
+
+                net = nn.Sequential(MultiTaskNet())
+                params = ([p for p in net.parameters()] + [log_var_a] + [log_var_b])
+                for param in params:
+                    init.normal_(param,mean=0,std=0.01)
+                    param.requires_grad = True
+                model = net
+                loss_list,model,r_square,optimal_epoch,log_var_a,log_var_b=MLT_model_training(X_train,y_train,X_test,y_test,lambda_,learning_rate,log_var_a,log_var_b,model)
+                savemodel(i,j,initial,model)
+                rs.append(r_square)           
+            else:
+                loss_list,model,r_square,optimal_epoch,log_var_a,log_var_b=MLT_model_training(X_train,y_train,X_test,y_test,lambda_,learning_rate,log_var_a,log_var_b,model)  
+                savemodel(i,j,initial,model)
+            rs.append(r_square)
+            initial = initial + 1
+            #start_year+=1
+            train_years+=1
+        rss.append(rs)
